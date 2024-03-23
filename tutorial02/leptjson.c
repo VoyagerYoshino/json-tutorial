@@ -1,5 +1,7 @@
 #include "leptjson.h"
 #include <string.h>
+#include <errno.h>
+#include <math.h>
 #include <assert.h>  /* assert() */
 #include <stdlib.h>  /* NULL, strtod() */
 
@@ -32,11 +34,12 @@ static int lept_parse_literal(lept_context* c, lept_value* v,const char* s,lept_
 }
 
 static int lept_parse_number(lept_context* c, lept_value* v) {
-/*  Solution could work but...
+/*  Solution could work but... 
 
     const char* ptr=c->json;
     char* end;
     double value;
+    errno=0;
     if (*c->json == '-'){
         ptr=(c->json+1);
     }
@@ -49,11 +52,56 @@ static int lept_parse_number(lept_context* c, lept_value* v) {
     if (*(ptr+1) != '.' && !ISDIGIT1TO9(*(ptr+1)) && *(ptr+1) != 'E' && *(ptr+1) != 'e'){
         end=ptr+1;
     }
+    if (errno == ERANGE && (value == HUGE_VAL || value== -HUGE_VAL)){
+        return LEPT_PARSE_NUMBER_TOO_BIG;
+    }
     v->n = value;
     c->json = end;
     v->type = LEPT_NUMBER;
     return LEPT_PARSE_OK;
-*/ 
+*/
+
+/*  More resonable solution */
+    const char* ptr = c->json;
+    /* [ "-" ] */
+    if (*ptr == '-'){
+        ptr++;
+    }
+    /* int = "0" / digit1-9 *digit */
+    if (*ptr == '0'){
+        ptr++;
+    }else{
+        if (!ISDIGIT1TO9(*ptr)){
+            return LEPT_PARSE_INVALID_VALUE;
+        }
+        for(ptr++;ISDIGIT(*ptr);ptr++);
+    }
+    /* frac = "." 1*digit */
+    if (*ptr == '.'){
+        ptr++;
+        if (!ISDIGIT(*ptr)){
+            return LEPT_PARSE_INVALID_VALUE;
+        }
+        for(ptr++;ISDIGIT(*ptr);ptr++);
+    }
+    /* exp = ("e" / "E") ["-" / "+"] 1*digit */
+    if (*ptr == 'e' || *ptr =='E'){
+        ptr++;
+        if (*ptr == '-' || *ptr =='+'){
+            ptr++;
+        }
+        if (!ISDIGIT(*ptr)){
+            return LEPT_PARSE_INVALID_VALUE;
+        }
+        for(ptr++;ISDIGIT(*ptr);ptr++);
+    }
+    errno = 0;
+    v->n = strtod(c->json, NULL);
+    if (errno == ERANGE && (v->n == HUGE_VAL || v->n == -HUGE_VAL))
+        return LEPT_PARSE_NUMBER_TOO_BIG;
+    v->type = LEPT_NUMBER;
+    c->json = ptr;
+    return LEPT_PARSE_OK;
 
 }
 
